@@ -29,14 +29,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
 /* TMDB key accessor: read ONLY from localStorage */
 function getStoredTmdbKey(){
-  return localStorage.getItem('ed8901b31c0b54c6ad923aa053be94bb') || '';
+  // usare una chiave leggibile per gli utenti
+  return localStorage.getItem('TMDB_API_KEY') || '';
 }
 
 /* Optional runtime helper to set the key and trigger poster fetch */
 window.setTMDBKey = function(key){
   if(!key) return;
-  localStorage.setItem('ed8901b31c0b54c6ad923aa053be94bb', key);
-  // kick off background fetch and re-render
+  // salviamo con lo stesso nome usato da getStoredTmdbKey
+  localStorage.setItem('TMDB_API_KEY', key);
+  // kick off background fetch e re-render
   fetchAllPosters().then(() => renderFilms());
 };
 
@@ -281,6 +283,13 @@ function updateProgress(){
   const text = document.getElementById('progressText');
   if(bar) bar.style.width = percent + '%';
   if(text) text.textContent = `${watchedCount}/${total}`;
+
+  // Update accessibility attributes on the progress container
+  const progressElem = document.querySelector('.progress[role="progressbar"]') || document.querySelector('.progress');
+  if(progressElem){
+    progressElem.setAttribute('aria-valuenow', String(percent));
+    progressElem.setAttribute('aria-valuetext', `${watchedCount} su ${total} film`);
+  }
 }
 
 /* Placeholder SVG data URL */
