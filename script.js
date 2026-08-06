@@ -29,13 +29,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
 /* TMDB key accessor: read ONLY from localStorage */
 function getStoredTmdbKey(){
-  return localStorage.getItem('TMDB_API_KEY') || '';
+  return localStorage.getItem('ed8901b31c0b54c6ad923aa053be94bb') || '';
 }
 
 /* Optional runtime helper to set the key and trigger poster fetch */
 window.setTMDBKey = function(key){
   if(!key) return;
-  localStorage.setItem('TMDB_API_KEY', key);
+  localStorage.setItem('ed8901b31c0b54c6ad923aa053be94bb', key);
   // kick off background fetch and re-render
   fetchAllPosters().then(() => renderFilms());
 };
