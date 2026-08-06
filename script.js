@@ -135,14 +135,26 @@ async function loadFilms(){
   }
   try {
     const res = await fetch(filmsUrl);
-    if(!res.ok) throw new Error('films.json fetch failed: ' + res.status);
+    // Mostra maggiori dettagli quando la risposta non è OK
+    if(!res.ok){
+      const text = await res.text().catch(() => '[impossibile leggere body]');
+      console.error('films.json fetch failed:', res.status, res.statusText, text);
+      throw new Error('films.json fetch failed: ' + res.status + ' ' + res.statusText);
+    }
+    // Verifica che sia JSON (previene Unexpected token <)
+    const ct = res.headers.get('content-type') || '';
+    if(!ct.includes('application/json') && !ct.includes('text/json')){
+      const text = await res.text().catch(() => '[impossibile leggere body]');
+      console.error('films.json non è JSON. Content-Type:', ct, 'body snippet:', text.slice(0,300));
+      throw new Error('films.json non è JSON. Vedi console per il body di risposta.');
+    }
     films = await res.json();
     // render subito l'interfaccia e poi tentare di recuperare i poster in background
     renderFilms();
     fetchAllPosters(); // background
   } catch(e){
     console.error('Impossibile caricare films.json', e);
-    if(grid) grid.innerHTML = '<p style="color:var(--muted)">Impossibile caricare la lista dei film.</p>';
+    if(grid) grid.innerHTML = '<p style="color:var(--muted)">Impossibile caricare la lista dei film. Controlla la Console per dettagli.</p>';
   }
 }
 
