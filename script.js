@@ -1,5 +1,5 @@
 /* Film Esame Cinema — script.js
-   Ora la TMDB API key NON è più hardcoded: devi impostarla in localStorage.
+   Ora la TMDB API key NON è più hardcoded: puoi impostarla in localStorage o tramite la UI.
    Esempio (console del browser):
      localStorage.setItem('TMDB_API_KEY', 'la_tua_chiave');
 
@@ -29,14 +29,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
 /* TMDB key accessor: read ONLY from localStorage */
 function getStoredTmdbKey(){
-  // usare una chiave leggibile per gli utenti
   return localStorage.getItem('TMDB_API_KEY') || '';
 }
 
 /* Optional runtime helper to set the key and trigger poster fetch */
 window.setTMDBKey = function(key){
   if(!key) return;
-  // salviamo con lo stesso nome usato da getStoredTmdbKey
   localStorage.setItem('TMDB_API_KEY', key);
   // kick off background fetch e re-render
   fetchAllPosters().then(() => renderFilms());
@@ -57,7 +55,7 @@ function loadTheme(){
   }
 }
 
-/* State persistence */
+/* State persistence (avoid redundant writes) */
 function loadState(){
   try {
     const raw = localStorage.getItem(STATE_KEY);
@@ -69,7 +67,9 @@ function loadState(){
 }
 function saveState(){
   try {
-    localStorage.setItem(STATE_KEY, JSON.stringify(state));
+    const json = JSON.stringify(state);
+    if(localStorage.getItem(STATE_KEY) === json) return; // nothing changed
+    localStorage.setItem(STATE_KEY, json);
   } catch(e){
     console.error('Errore salvataggio stato locale', e);
   }
@@ -89,6 +89,41 @@ function initUI(){
     saveState();
     renderFilms();
   });
+
+  // TMDB key controls
+  const tmdbInput = document.getElementById('tmdbKeyInput');
+  const saveBtn = document.getElementById('saveTmdbKey');
+  const clearBtn = document.getElementById('clearTmdbKey');
+  if(tmdbInput) tmdbInput.value = getStoredTmdbKey();
+  if(saveBtn && tmdbInput) saveBtn.addEventListener('click', () => {
+    const v = tmdbInput.value && tmdbInput.value.trim();
+    if(!v){ alert('Inserisci una chiave TMDB valida.'); return; }
+    localStorage.setItem('TMDB_API_KEY', v);
+    // refresh posters
+    fetchAllPosters().then(() => renderFilms());
+    alert('Chiave TMDB salvata. I poster verranno scaricati in background.');
+  });
+  if(clearBtn){
+    clearBtn.addEventListener('click', () => {
+      localStorage.removeItem('TMDB_API_KEY');
+      if(tmdbInput) tmdbInput.value = '';
+      // clear poster cache entries
+      try {
+        Object.keys(localStorage).forEach(k => { if(k && k.startsWith(POSTER_CACHE_PREFIX)) localStorage.removeItem(k); });
+        posterCache = {};
+        renderFilms();
+      } catch(e){ /* ignore */ }
+      alert('Chiave TMDB rimossa e cache poster cancellata.');
+    });
+  }
+
+  // import/export state
+  const exportBtn = document.getElementById('exportState');
+  const importBtn = document.getElementById('importState');
+  const importFile = document.getElementById('importFile');
+  if(exportBtn) exportBtn.addEventListener('click', exportState);
+  if(importBtn && importFile) importBtn.addEventListener('click', () => importFile.click());
+  if(importFile) importFile.addEventListener('change', handleImportFile);
 }
 
 /* Fetch films.json */
@@ -227,6 +262,7 @@ function renderFilms(){
     if(s.watched && card) card.classList.add('watched');
 
     if(watchedBtn){
+      watchedBtn.setAttribute('aria-pressed', s.watched ? 'true' : 'false');
       watchedBtn.addEventListener('click', () => {
         const cur = state[film.id] || { watched:false, rating:0, notes:'' };
         cur.watched = !cur.watched;
@@ -234,24 +270,40 @@ function renderFilms(){
         saveState();
         if(cur.watched && card) card.classList.add('watched'); 
         else if(card) card.classList.remove('watched');
+        watchedBtn.setAttribute('aria-pressed', cur.watched ? 'true' : 'false');
         updateProgress();
       });
     }
 
     // rating
-    function setRating(val){
+    function setRating(val, save = true){
       const cur = state[film.id] || { watched:false, rating:0, notes:'' };
+      if(cur.rating === val){
+        // update UI only
+        stars.forEach(sbt => {
+          const active = Number(sbt.dataset.value) <= val;
+          sbt.classList.toggle('active', active);
+          sbt.setAttribute('aria-pressed', active ? 'true' : 'false');
+        });
+        return;
+      }
       cur.rating = val;
       state[film.id] = cur;
-      saveState();
-      stars.forEach(sbt => sbt.classList.toggle('active', Number(sbt.dataset.value) <= val));
+      if(save) saveState();
+      stars.forEach(sbt => {
+        const active = Number(sbt.dataset.value) <= val;
+        sbt.classList.toggle('active', active);
+        sbt.setAttribute('aria-pressed', active ? 'true' : 'false');
+      });
     }
     stars.forEach(st => {
       const v = Number(st.dataset.value);
-      st.addEventListener('click', () => setRating(v));
+      // initialize aria-pressed
+      st.setAttribute('aria-pressed', Number(s.rating || 0) >= v ? 'true' : 'false');
+      st.addEventListener('click', () => setRating(v, true));
     });
     // init rating UI
-    setRating(s.rating || 0);
+    setRating(s.rating || 0, false);
 
     // notes (debounce salvataggio)
     if(notesEl){
@@ -261,6 +313,7 @@ function renderFilms(){
         clearTimeout(notesTimer);
         notesTimer = setTimeout(() => {
           const cur = state[film.id] || { watched:false, rating:0, notes:'' };
+          if(cur.notes === notesEl.value) return; // avoid redundant save
           cur.notes = notesEl.value;
           state[film.id] = cur;
           saveState();
@@ -290,6 +343,52 @@ function updateProgress(){
     progressElem.setAttribute('aria-valuenow', String(percent));
     progressElem.setAttribute('aria-valuetext', `${watchedCount} su ${total} film`);
   }
+}
+
+/* Export / Import state */
+function exportState(){
+  const payload = {
+    exportedAt: new Date().toISOString(),
+    version: 1,
+    filmsCount: Array.isArray(films) ? films.length : 0,
+    state: state
+  };
+  const data = JSON.stringify(payload, null, 2);
+  const blob = new Blob([data], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `film-esame-state-${new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')}.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+function handleImportFile(e){
+  const file = e.target.files && e.target.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = function(ev){
+    try{
+      const parsed = JSON.parse(String(ev.target.result));
+      if(!parsed || typeof parsed !== 'object' || !parsed.state){
+        alert('File non valido: struttura inattesa.');
+        return;
+      }
+      if(!confirm('Importare lo stato dal file selezionato? Questa azione sovrascriverà lo stato corrente.')) return;
+      state = parsed.state || {};
+      saveState();
+      renderFilms();
+      alert('Import completato.');
+    }catch(err){
+      console.error('Import error', err);
+      alert('Impossibile importare il file: JSON non valido.');
+    }
+  };
+  reader.readAsText(file);
+  // reset input so same file can be reselected later
+  e.target.value = '';
 }
 
 /* Placeholder SVG data URL */
