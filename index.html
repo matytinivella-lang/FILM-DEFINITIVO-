@@ -24,6 +24,12 @@
           <option value="director-desc">Regista Z→A</option>
         </select>
         <button id="resetProgress" title="Azzera tutti i progressi">♻️ Reset</button>
+
+        <!-- TMDB key UI -->
+        <input id="tmdbKeyInput" type="text" placeholder="TMDB API key" aria-label="Chiave TMDB" />
+        <button id="saveTmdbKey" title="Salva chiave TMDB">💾</button>
+        <button id="clearTmdbKey" title="Rimuovi chiave TMDB">🗑️</button>
+
         <label class="theme-toggle" title="Tema scuro/chiaro">
           <input id="themeToggle" type="checkbox" />
           <span class="slider">🌙</span>
@@ -31,9 +37,15 @@
       </div>
       <div class="progress-wrap" aria-hidden="false">
         <div class="progress-label">Avanzamento: <span id="progressText">0/28</span></div>
-        <div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="100">
+        <div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
           <div id="progressBar" class="progress-bar"></div>
         </div>
+      </div>
+
+      <div class="controls" style="margin-top:8px; gap:8px;">
+        <button id="exportState" title="Esporta stato">⬇️ Esporta</button>
+        <button id="importState" title="Importa stato">⬆️ Importa</button>
+        <input id="importFile" type="file" accept="application/json" style="display:none" />
       </div>
     </div>
   </header>
@@ -46,17 +58,17 @@
     <article class="card" tabindex="0">
       <div class="poster-wrap">
         <img class="poster" src="" alt="">
-        <button class="watched-toggle" title="Segna come visto">✅</button>
+        <button class="watched-toggle" title="Segna come visto" aria-pressed="false" aria-label="Segna come visto">✅</button>
       </div>
       <div class="card-body">
         <h2 class="film-title"></h2>
         <div class="meta"><span class="year"></span> • <span class="director"></span></div>
         <div class="rating" aria-label="Voto personale">
-          <button class="star" data-value="1" aria-label="1 stella">☆</button>
-          <button class="star" data-value="2" aria-label="2 stelle">☆</button>
-          <button class="star" data-value="3" aria-label="3 stelle">☆</button>
-          <button class="star" data-value="4" aria-label="4 stelle">☆</button>
-          <button class="star" data-value="5" aria-label="5 stelle">☆</button>
+          <button class="star" data-value="1" aria-label="1 stella" aria-pressed="false">☆</button>
+          <button class="star" data-value="2" aria-label="2 stelle" aria-pressed="false">☆</button>
+          <button class="star" data-value="3" aria-label="3 stelle" aria-pressed="false">☆</button>
+          <button class="star" data-value="4" aria-label="4 stelle" aria-pressed="false">☆</button>
+          <button class="star" data-value="5" aria-label="5 stelle" aria-pressed="false">☆</button>
         </div>
         <textarea class="notes" placeholder="📝 Note personali..." aria-label="Note personali"></textarea>
       </div>
