@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Film Esame Cinema — Storia del Cinema</title>
+  <link rel="stylesheet" href="style.css">
+  <meta name="description" content="Progetto 'Film Esame Cinema' — traccia i film, voti, note e progresso del corso Storia del Cinema.">
+</head>
+<body>
+  <header class="app-header">
+    <div class="header-left">
+      <h1>🎓 Storia del Cinema — Film Esame Cinema</h1>
+      <p class="subtitle">Traccia la visione dei 28 film del corso</p>
+    </div>
+    <div class="header-right">
+      <div class="controls">
+        <input id="search" type="search" placeholder="🔍 Cerca per titolo, regista o anno" aria-label="Cerca film" />
+        <select id="sort" aria-label="Ordina">
+          <option value="default">Ordina: Predefinito</option>
+          <option value="year-asc">Anno ↑</option>
+          <option value="year-desc">Anno ↓</option>
+          <option value="director-asc">Regista A→Z</option>
+          <option value="director-desc">Regista Z→A</option>
+        </select>
+        <button id="resetProgress" title="Azzera tutti i progressi">♻️ Reset</button>
+        <label class="theme-toggle" title="Tema scuro/chiaro">
+          <input id="themeToggle" type="checkbox" />
+          <span class="slider">🌙</span>
+        </label>
+      </div>
+      <div class="progress-wrap" aria-hidden="false">
+        <div class="progress-label">Avanzamento: <span id="progressText">0/28</span></div>
+        <div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="100">
+          <div id="progressBar" class="progress-bar"></div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <section id="grid" class="grid" aria-live="polite"></section>
+  </main>
+
+  <template id="card-template">
+    <article class="card" tabindex="0">
+      <div class="poster-wrap">
+        <img class="poster" src="" alt="">
+        <button class="watched-toggle" title="Segna come visto">✅</button>
+      </div>
+      <div class="card-body">
+        <h2 class="film-title"></h2>
+        <div class="meta"><span class="year"></span> • <span class="director"></span></div>
+        <div class="rating" aria-label="Voto personale">
+          <button class="star" data-value="1" aria-label="1 stella">☆</button>
+          <button class="star" data-value="2" aria-label="2 stelle">☆</button>
+          <button class="star" data-value="3" aria-label="3 stelle">☆</button>
+          <button class="star" data-value="4" aria-label="4 stelle">☆</button>
+          <button class="star" data-value="5" aria-label="5 stelle">☆</button>
+        </div>
+        <textarea class="notes" placeholder="📝 Note personali..." aria-label="Note personali"></textarea>
+      </div>
+    </article>
+  </template>
+
+  <script src="script.js" defer></script>
+</body>
+</html>
