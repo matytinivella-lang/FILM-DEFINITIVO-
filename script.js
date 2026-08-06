@@ -1,10 +1,15 @@
 /* Film Esame Cinema — script.js
-   - Inserisci la tua TMDB API key nella variabile TMDB_API_KEY qui sotto:
-     const TMDB_API_KEY = 'la_tua_chiave';
-   - Oppure imposta la chiave in localStorage: localStorage.setItem('TMDB_API_KEY', 'la_tua_chiave');
+   Ora la TMDB API key NON è più hardcoded: devi impostarla in localStorage.
+   Esempio (console del browser):
+     localStorage.setItem('TMDB_API_KEY', 'la_tua_chiave');
+
+   Oppure chiama in runtime:
+     window.setTMDBKey('la_tua_chiave');
+
+   Il codice legge sempre la chiave da localStorage; se non è presente,
+   le chiamate TMDB non verranno effettuate ma l'app continua a funzionare.
 */
 
-const TMDB_API_KEY = 'ed8901b31c0b54c6ad923aa053be94bb'; // <-- incolla qui la tua chiave TMDB oppure impostala in localStorage
 const STATE_KEY = 'filmEsameState_v1';
 const THEME_KEY = 'filmEsameTheme';
 const POSTER_CACHE_PREFIX = 'tmdbPoster_';
@@ -14,6 +19,7 @@ let films = [];
 let state = {}; // { [id]: { watched:bool, rating:int, notes:string } }
 let posterCache = {};
 
+/* Entry */
 document.addEventListener('DOMContentLoaded', () => {
   loadTheme();
   loadState();
@@ -21,16 +27,26 @@ document.addEventListener('DOMContentLoaded', () => {
   loadFilms();
 });
 
+/* TMDB key accessor: read ONLY from localStorage */
 function getStoredTmdbKey(){
-  return TMDB_API_KEY || localStorage.getItem('TMDB_API_KEY') || '';
+  return localStorage.getItem('TMDB_API_KEY') || '';
 }
 
+/* Optional runtime helper to set the key and trigger poster fetch */
+window.setTMDBKey = function(key){
+  if(!key) return;
+  localStorage.setItem('TMDB_API_KEY', key);
+  // kick off background fetch and re-render
+  fetchAllPosters().then(() => renderFilms());
+};
+
+/* Theme */
 function loadTheme(){
   const t = localStorage.getItem(THEME_KEY) || 'dark';
   document.body.classList.toggle('light-theme', t === 'light');
   const toggle = document.getElementById('themeToggle');
-  if(toggle) toggle.checked = (t === 'light');
-  if(toggle){
+  if(toggle) {
+    toggle.checked = (t === 'light');
     toggle.addEventListener('change', (e) => {
       const mode = e.target.checked ? 'light' : 'dark';
       document.body.classList.toggle('light-theme', mode === 'light');
@@ -50,17 +66,22 @@ function loadState(){
   }
 }
 function saveState(){
-  localStorage.setItem(STATE_KEY, JSON.stringify(state));
+  try {
+    localStorage.setItem(STATE_KEY, JSON.stringify(state));
+  } catch(e){
+    console.error('Errore salvataggio stato locale', e);
+  }
 }
 
-/* UI init */
+/* UI init (defensive: verifica gli elementi prima di usarli) */
 function initUI(){
   const search = document.getElementById('search');
   const sort = document.getElementById('sort');
   const reset = document.getElementById('resetProgress');
-  search.addEventListener('input', renderFilmsDebounced);
-  sort.addEventListener('change', renderFilms);
-  reset.addEventListener('click', () => {
+
+  if(search) search.addEventListener('input', renderFilmsDebounced);
+  if(sort) sort.addEventListener('change', renderFilms);
+  if(reset) reset.addEventListener('click', () => {
     if(!confirm('Azzera tutti i progressi? Questa azione non è reversibile.')) return;
     state = {};
     saveState();
@@ -70,19 +91,25 @@ function initUI(){
 
 /* Fetch films.json */
 async function loadFilms(){
+  const grid = document.getElementById('grid');
+  if(!grid) {
+    console.error('Elemento #grid non trovato nella pagina.');
+    return;
+  }
   try {
     const res = await fetch(filmsUrl);
+    if(!res.ok) throw new Error('films.json fetch failed: ' + res.status);
     films = await res.json();
-    // store posters lookup attempt but do not block UI: we will fetch posters asynchronously
+    // render subito l'interfaccia e poi tentare di recuperare i poster in background
     renderFilms();
-    fetchAllPosters(); // attempt to fetch posters in background
+    fetchAllPosters(); // background
   } catch(e){
     console.error('Impossibile caricare films.json', e);
-    document.getElementById('grid').innerHTML = '<p style="color:var(--muted)">Impossibile caricare la lista dei film.</p>';
+    if(grid) grid.innerHTML = '<p style="color:var(--muted)">Impossibile caricare la lista dei film.</p>';
   }
 }
 
-/* Poster fetching (TMDB) with basic caching and rate spacing */
+/* Poster fetching (TMDB) con caching in localStorage e spacing per evitare burst */
 async function fetchPosterForFilm(film){
   const key = POSTER_CACHE_PREFIX + film.id;
   const stored = localStorage.getItem(key);
@@ -90,13 +117,13 @@ async function fetchPosterForFilm(film){
   const tmdbKey = getStoredTmdbKey();
   if(!tmdbKey) return null;
   try {
-    const q = encodeURIComponent(film.tmdbQuery || film.originalTitle || film.title);
+    const q = encodeURIComponent(film.tmdbQuery || film.originalTitle || film.title || '');
     const url = `https://api.themoviedb.org/3/search/movie?api_key=${tmdbKey}&query=${q}&page=1`;
     const res = await fetch(url);
-    if(!res.ok) throw new Error('TMDB search failed');
+    if(!res.ok) throw new Error(`TMDB search failed (${res.status})`);
     const data = await res.json();
-    if(data && data.results && data.results.length){
-      // prefer exact year match
+    if(data && Array.isArray(data.results) && data.results.length){
+      // prefer matching year if presente
       let pick = data.results[0];
       if(film.year){
         const exact = data.results.find(r => r.release_date && r.release_date.startsWith(String(film.year)));
@@ -104,7 +131,7 @@ async function fetchPosterForFilm(film){
       }
       if(pick && pick.poster_path){
         const posterUrl = 'https://image.tmdb.org/t/p/w500' + pick.poster_path;
-        localStorage.setItem(key, posterUrl);
+        try { localStorage.setItem(key, posterUrl); } catch(e){ /* ignore quota errors */ }
         return posterUrl;
       }
     }
@@ -117,33 +144,42 @@ async function fetchPosterForFilm(film){
 async function fetchAllPosters(){
   const tmdbKey = getStoredTmdbKey();
   if(!tmdbKey) return;
+  if(!Array.isArray(films) || films.length === 0) return;
   for(const film of films){
     // small spacing to avoid bursts
     await new Promise(res => setTimeout(res, 200));
     const url = await fetchPosterForFilm(film);
     if(url){
       posterCache[film.id] = url;
-      // update existing img if already rendered
+      // update existing img if already renderizzato
       const img = document.querySelector(`img[data-film-id="${film.id}"]`);
       if(img) img.src = url;
     }
   }
 }
 
-/* Render */
+/* Rendering */
 let renderTimer = null;
 function renderFilmsDebounced(){ clearTimeout(renderTimer); renderTimer = setTimeout(renderFilms, 150); }
 
 function renderFilms(){
   const grid = document.getElementById('grid');
-  grid.innerHTML = '';
   const tmpl = document.getElementById('card-template');
-  const searchVal = (document.getElementById('search').value || '').toLowerCase();
-  const sortVal = document.getElementById('sort').value;
+  const searchInput = document.getElementById('search');
+  const sortEl = document.getElementById('sort');
 
-  let list = films.slice();
+  if(!grid || !tmpl) {
+    // se manca il template o la griglia, non possiamo renderizzare
+    return;
+  }
 
-  // search filtering
+  grid.innerHTML = '';
+  const searchVal = (searchInput && searchInput.value) ? (searchInput.value || '').toLowerCase() : '';
+  const sortVal = sortEl ? sortEl.value : '';
+
+  let list = Array.isArray(films) ? films.slice() : [];
+
+  // filtro ricerca
   if(searchVal){
     list = list.filter(f => {
       const hay = ((f.title || '') + ' ' + (f.originalTitle||'') + ' ' + (f.director||'') + ' ' + (f.year||'')).toLowerCase();
@@ -151,12 +187,11 @@ function renderFilms(){
     });
   }
 
-  // sorting
+  // ordinamento
   if(sortVal === 'year-asc') list.sort((a,b) => (a.year||0) - (b.year||0));
   else if(sortVal === 'year-desc') list.sort((a,b) => (b.year||0) - (a.year||0));
   else if(sortVal === 'director-asc') list.sort((a,b) => (a.director||'').localeCompare(b.director||''));
   else if(sortVal === 'director-desc') list.sort((a,b) => (b.director||'').localeCompare(a.director||''));
-  // default: keep file order
 
   for(const film of list){
     const node = tmpl.content.cloneNode(true);
@@ -166,38 +201,40 @@ function renderFilms(){
     const titleEl = node.querySelector('.film-title');
     const yearEl = node.querySelector('.year');
     const dirEl = node.querySelector('.director');
-    const stars = [...node.querySelectorAll('.star')];
+    const stars = Array.from(node.querySelectorAll('.star'));
     const notesEl = node.querySelector('.notes');
 
-    // fill
-    titleEl.textContent = `${film.title} ${film.originalTitle ? '— ' + film.originalTitle : ''}`;
-    titleEl.title = film.title + (film.originalTitle ? (' — ' + film.originalTitle) : '');
-    yearEl.textContent = film.year || '';
-    dirEl.textContent = film.director || '';
+    if(titleEl) {
+      titleEl.textContent = `${film.title || ''}${film.originalTitle ? ' — ' + film.originalTitle : ''}`;
+      titleEl.title = (film.title || '') + (film.originalTitle ? (' — ' + film.originalTitle) : '');
+    }
+    if(yearEl) yearEl.textContent = film.year || '';
+    if(dirEl) dirEl.textContent = film.director || '';
 
-    img.dataset.filmId = film.id;
-    img.alt = `${film.title} poster`;
-    const cached = localStorage.getItem(POSTER_CACHE_PREFIX + film.id);
-    if(cached){
-      img.src = cached;
-    } else if(posterCache[film.id]){
-      img.src = posterCache[film.id];
-    } else {
-      img.src = placeholderDataUrl(film.title, film.year);
+    if(img){
+      img.dataset.filmId = film.id;
+      img.alt = `${film.title || 'Poster'} poster`;
+      const cached = localStorage.getItem(POSTER_CACHE_PREFIX + film.id);
+      if(cached) img.src = cached;
+      else if(posterCache[film.id]) img.src = posterCache[film.id];
+      else img.src = placeholderDataUrl(film.title, film.year);
     }
 
-    // state
+    // stato
     const s = state[film.id] || { watched:false, rating:0, notes:'' };
-    if(s.watched) card.classList.add('watched');
-    // watched button
-    watchedBtn.addEventListener('click', () => {
-      const cur = state[film.id] || { watched:false, rating:0, notes:'' };
-      cur.watched = !cur.watched;
-      state[film.id] = cur;
-      saveState();
-      if(cur.watched) card.classList.add('watched'); else card.classList.remove('watched');
-      updateProgress();
-    });
+    if(s.watched && card) card.classList.add('watched');
+
+    if(watchedBtn){
+      watchedBtn.addEventListener('click', () => {
+        const cur = state[film.id] || { watched:false, rating:0, notes:'' };
+        cur.watched = !cur.watched;
+        state[film.id] = cur;
+        saveState();
+        if(cur.watched && card) card.classList.add('watched'); 
+        else if(card) card.classList.remove('watched');
+        updateProgress();
+      });
+    }
 
     // rating
     function setRating(val){
@@ -209,25 +246,25 @@ function renderFilms(){
     }
     stars.forEach(st => {
       const v = Number(st.dataset.value);
-      st.addEventListener('click', () => {
-        setRating(v);
-      });
+      st.addEventListener('click', () => setRating(v));
     });
     // init rating UI
     setRating(s.rating || 0);
 
-    // notes (debounce save)
-    notesEl.value = s.notes || '';
-    let notesTimer = null;
-    notesEl.addEventListener('input', (e) => {
-      clearTimeout(notesTimer);
-      notesTimer = setTimeout(() => {
-        const cur = state[film.id] || { watched:false, rating:0, notes:'' };
-        cur.notes = notesEl.value;
-        state[film.id] = cur;
-        saveState();
-      }, 500);
-    });
+    // notes (debounce salvataggio)
+    if(notesEl){
+      notesEl.value = s.notes || '';
+      let notesTimer = null;
+      notesEl.addEventListener('input', (e) => {
+        clearTimeout(notesTimer);
+        notesTimer = setTimeout(() => {
+          const cur = state[film.id] || { watched:false, rating:0, notes:'' };
+          cur.notes = notesEl.value;
+          state[film.id] = cur;
+          saveState();
+        }, 500);
+      });
+    }
 
     grid.appendChild(node);
   }
@@ -237,7 +274,7 @@ function renderFilms(){
 
 /* Progress */
 function updateProgress(){
-  const total = films.length;
+  const total = Array.isArray(films) ? films.length : 0;
   const watchedCount = Object.values(state).filter(s => s && s.watched).length;
   const percent = total ? Math.round((watchedCount / total) * 100) : 0;
   const bar = document.getElementById('progressBar');
@@ -268,17 +305,7 @@ function placeholderDataUrl(title, year){
 }
 
 function escapeHtml(s){
-  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":"&#39;"}[c]));
 }
 
-/* Utility: debounce for render called earlier */
-
-/* Expose a helper to re-fetch posters after inserting the API key in localStorage or in the script variable */
-window.updateTMDBKeyAndFetch = async function(key){
-  if(key) localStorage.setItem('TMDB_API_KEY', key);
-  // also update TMDB_API_KEY variable isn't possible at runtime if function-scoped const used; fetch uses localStorage fallback too.
-  await fetchAllPosters();
-  renderFilms();
-};
-
-/* End of script.js */
+/* Fine */
